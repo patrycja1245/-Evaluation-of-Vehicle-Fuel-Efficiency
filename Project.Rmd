@@ -1,0 +1,178 @@
+---
+title: "Regresja i analiza wariancji - projekt"
+subtitle: 'Elementy decydujące o efektywności paliwowej samochodu' 
+author: 
+  name: 'Patrycja Robak, Karolina Malisz'
+  affiliation: 'Politechnika Krakowska'
+output: 
+  html_document:
+    theme: readable
+    toc: true
+    toc_float: true
+    df_print: paged
+---
+
+# Jednoczynnikowa analiza wariancji
+
+## Problem badawczy
+Firma produkująca samochody planuje wprowadzić na rynek nowy model. Projektanci i inżynierowie muszą podjąć decyzje dotyczące charakterystyk silnika, takie jak liczba cylindrów, aby osiągnąć optymalną efektywność paliwową.
+
+## Cel Badania
+Chcemy zbadać, czy liczba cylindrów w silniku ma istotny wpływ na efektywność paliwową. 
+
+Opis danych:
+
+cyl: Liczba cylindrów w silniku - 4, 6 lub 8
+
+mpg: Liczba mil przejechanych na jednym galonie paliwa (miles per gallon).
+
+Importujemy potrzebne pakiety oraz wczytujemy zbiór danych, na którym będziemy pracować.
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE, include = FALSE}
+knitr::opts_chunk$set(cache = TRUE, warning = TRUE, message = FALSE)
+library(tidyverse) 
+```
+
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE, include = FALSE}
+library(tidyverse)
+library(ISLR)
+library(ggcorrplot)
+library(lmtest)
+```
+
+Korzystamy z wbudowanej tabeli danych mtcarsw w języku R. Zawiera ona rzeczywiste dane dotyczące różnych modeli samochodów:
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+head(mtcars)
+```
+
+W naszym przykładzie dysponujemy trzema kategoriami porównawczymi - stąd analiza przy użyciu testu t-studenta nie znajduje swojego zastosowania.
+
+Decydujemy się zatem na skorzystanie z narzędzia jakim jest **analiza wariancji**.
+
+Aby poprawnie zbudować model, zamieniamy wartości w istniejącej kolumnie "cyl" na typ tekstowy.
+
+```{r}
+mtcars1 <-mtcars %>% dplyr::mutate(cyl = as.character(cyl))
+mtcars1
+```
+
+Przeprowadzamy **Test Bartletta** dla zwerfikowania założenia klasycznej analizy wariancji jakim jest  stała wariancja w każdej z grup. 
+
+Hipotezą zerową testu Bartletta jest:
+$H_0: \sigma^2_1 = \sigma^2_2 = \dots = \sigma^2_k$, że w każdej z $k$ grup wariancja jest równa. 
+
+Badamy normalność grup naszej próby za pomocą testu shapiro-wilka:
+
+```{r}
+mtcars1 %>% group_by(cyl) %>% summarise(pval = shapiro.test(mpg)$p) %>% print()
+```
+Nie ma podstaw do odrzucenia hipotezy o normalności żadnej z grup.
+
+
+```{r}
+bartlett.test(mpg ~ cyl, data=mtcars1)
+```
+P-value < 0.05 - odrzucamy hipotezę zerową dotyczącą stałych wariancji w grupach.
+
+Ponieważ założenie to dla klasycznej analizy wariancji nie jest spełnione będziemy musieli posłużyć się analiza wariancji Welscha.
+
+```{r}
+oneway.test(mpg ~ cyl, data=mtcars1)
+```
+Wnioskujemy, że przynajmniej w jednej z grup średnia jest istotnie różna od średniej z innych grup.
+
+
+Wykres pudełkowy:
+```{r}
+ggplot(mtcars1, aes(x = cyl, y = mpg)) + geom_boxplot() + labs(title = "Wpływ ilości cylindrów na efektywność paliwową", x='Ilość cylindów', y='Efektywność paliwowa')
+```
+
+
+```{r}
+ggplot(mtcars1, aes(x = cyl, y = mpg)) + geom_point(aes(color=cyl), position='jitter') + labs(title = "Wpływ ilości cylindrów na efektywność paliwową", x='Ilość cylindów', y='Efektywność paliwowa') + theme(legend.position = 'none')
+```
+
+Widzimy, że średnie pomiędzy grupami znacząco równią się od siebie.
+
+Do analizy post-hoc nie możemy użyc procedury Tukeya (brak spełnienia założenia o stałej wariancji). Przyjmujemy alternatywę jakim jest test Gamesa-Howella: 
+
+```{r}
+ghTest <- rstatix::games_howell_test(mpg ~ cyl, data = mtcars1)
+ghTest <- ghTest %>% dplyr::mutate(gr_label = paste(group2,group1, sep='-')) %>% dplyr::mutate(order = row_number())
+ghTest
+```
+
+## Wnioski
+
+W skrócie, analizując dostępne dane z bazy mtcars, możemy stwierdzić, że istnieje wyraźna tendencja w kierunku lepszej efektywności paliwowej w przypadku samochodów z najmniejszą liczbą cylindrów, czyli 4.  Wyniki analizy statystycznej potwierdzają istotność tych różnic między grupami, co sugeruje, że liczba cylindrów ma istotny wpływ na zużycie paliwa. Ten wniosek może być istotny zarówno dla konsumentów, którzy zależą na oszczędności paliwa, jak i dla producentów samochodów, którzy mogą dostosować swoje oferty, uwzględniając preferencje rynkowe związane z efektywnością paliwową.
+
+
+# Dwuczynnikowa analiza wariancji
+
+## Problem Badawczy
+
+Czy istnieje statystycznie istotna różnica w efektywności paliwowej (mpg) między samochodami z różną skrzynią biegów, biorąc pod uwagę rodzaj układu napędu?
+
+Opis danych:
+
+Skrzynia biegów: 0 - automatyczna, 1 - manualna 
+
+Rodzaj układu napędu: 0 - V-shaped, 1 - straight
+
+
+Zamieniamy dwie kolumny, "am" i "vs", na typ 'factor' w celu ułatwienia interpretowalności wyników, szczególnie w kontekście zmiennych kategorycznych.
+
+```{r}
+mtcars2 <- mtcars  %>%mutate(am = as.factor(am)) %>%mutate(vs= as.factor(vs))
+mtcars2 
+```
+
+
+Wykres pudełkowy do wykreślania danych pogrupowanych według kombinacji poziomów dwóch czynników.
+
+```{r}
+ggplot(mtcars2, aes(x=am, y=mpg)) + geom_boxplot() + facet_wrap(~vs)
+```
+
+Możemy wnioskować, że zarówno rodzaj skrzynii biegów jak i rodzaj napędu mają wpływ na efektywność paliwową. Największa średnia, jest dla manualnej skrzynni biegu z prostym układem napędu.
+
+
+Ponownie zweryfikujemy sobie założenia o  o stałej wariancji.
+Normalność prób wewnątrz grup:
+
+```{r}
+mtcars2 %>% group_by(am, vs) %>% summarise(pval = shapiro.test(mpg)$p) %>% print()
+```
+Nie mamy podstaw do odrzucenia hipotezy zerowej w żadnej z grup.
+
+
+Bartlett test:
+
+```{r}
+bartlett.test(mpg ~ vs, data = filter(mtcars2, am == 0))
+```
+
+```{r}
+bartlett.test(mpg ~ vs, data = filter(mtcars2, am == 1))
+```
+
+Nie ma podstaw do odrzucenia hipotezy zerowej dotyczącej niestałej wariancji (wniosek dla wszystkich grup).
+Zatem warunek analizy wariancji jak widzimy jest spełniony.
+
+
+```{r}
+anova_result <- aov(mpg ~ am * vs, data = mtcars2)
+summary(anova_result)
+```
+
+Rodzaj skrzyni biegów oraz rodzaj napędu mają istotny wpływ na efektywność paliwową
+
+Nie ma istotnego wpływu interakcji między rodzajem skrzyni biegów a rodzajem napędu.
+
+
+## Ostateczne wnioski
+Po wykonaniu dwuczynnikowej analizy wariancji stwierdzamy, że najlepszą efektynowść paliwową osięgniemy, kiedy nasz samochód będzie składał sie z manualnej skrzynii biegów i będzie wyposażony w rzędowy układ napędu (straight).
+
